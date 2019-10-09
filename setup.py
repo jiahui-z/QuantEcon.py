@@ -8,7 +8,7 @@ import os
 #-Write Versions File-#
 #~~~~~~~~~~~~~~~~~~~~~#
 
-VERSION = '0.3.8'
+VERSION = '0.4.5'
 
 def write_version_py(filename=None):
     """
@@ -98,6 +98,7 @@ setup(name='quantecon',
                 'quantecon.game_theory',
                 'quantecon.game_theory.game_generators',
                 'quantecon.markov',
+                'quantecon.optimize',
                 'quantecon.random',
                 'quantecon.tests',
                 'quantecon.util',
@@ -111,5 +112,12 @@ setup(name='quantecon',
       author_email='john.stachurski@gmail.com',
       url='https://github.com/QuantEcon/QuantEcon.py',  # URL to the repo
       download_url='https://github.com/QuantEcon/QuantEcon.py/tarball/' + VERSION,
-      keywords=['quantitative', 'economics']
+      keywords=['quantitative', 'economics'],
+      install_requires=[
+          'numba>=0.38',
+          'numpy',
+          'requests',
+          'scipy>=1.0.0',
+          'sympy',
+          ]
       )

@@ -2,8 +2,6 @@
 Tests for normal_form_game.py
 
 """
-from __future__ import division
-
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import eq_, ok_, raises
@@ -15,6 +13,9 @@ from quantecon.game_theory import (
 
 # Player #
 
+LP_METHODS = [None, 'simplex', 'interior-point', 'revised simplex']
+
+
 class TestPlayer_1opponent:
     """Test the methods of Player with one opponent player"""
 
@@ -22,6 +23,18 @@ class TestPlayer_1opponent:
         """Setup a Player instance"""
         coordination_game_matrix = [[4, 0], [3, 2]]
         self.player = Player(coordination_game_matrix)
+
+    def test_delete_action(self):
+        N = self.player.num_opponents + 1
+        action_to_delete = 0
+        actions_to_remain = \
+            np.setdiff1d(np.arange(self.player.num_actions), action_to_delete)
+        for i in range(N):
+            player_new = self.player.delete_action(action_to_delete, i)
+            assert_array_equal(
+                player_new.payoff_array,
+                self.player.payoff_array.take(actions_to_remain, axis=i)
+            )
 
     def test_best_response_against_pure(self):
         eq_(self.player.best_response(1), 1)
@@ -69,8 +82,12 @@ class TestPlayer_1opponent:
 
     def test_is_dominated(self):
         for action in range(self.player.num_actions):
-            for method in [None, 'simplex']:
+            for method in LP_METHODS:
                 eq_(self.player.is_dominated(action, method=method), False)
+
+    def test_dominated_actions(self):
+        for method in LP_METHODS:
+            eq_(self.player.dominated_actions(method=method), [])
 
 
 class TestPlayer_2opponents:
@@ -83,6 +100,18 @@ class TestPlayer_2opponents:
                               [[1, 0],
                                [5, 7]]]
         self.player = Player(payoffs_2opponents)
+
+    def test_delete_action(self):
+        N = self.player.num_opponents + 1
+        action_to_delete = 0
+        actions_to_remain = \
+            np.setdiff1d(np.arange(self.player.num_actions), action_to_delete)
+        for i in range(N):
+            player_new = self.player.delete_action(action_to_delete, i)
+            assert_array_equal(
+                player_new.payoff_array,
+                self.player.payoff_array.take(actions_to_remain, axis=i)
+            )
 
     def test_payoff_vector_against_pure(self):
         assert_array_equal(self.player.payoff_vector((0, 1)), [6, 0])
@@ -106,8 +135,12 @@ class TestPlayer_2opponents:
 
     def test_is_dominated(self):
         for action in range(self.player.num_actions):
-            for method in [None, 'simplex']:
+            for method in LP_METHODS:
                 eq_(self.player.is_dominated(action, method=method), False)
+
+    def test_dominated_actions(self):
+        for method in LP_METHODS:
+            eq_(self.player.dominated_actions(method=method), [])
 
 
 def test_random_choice():
@@ -126,17 +159,20 @@ def test_player_corner_cases():
     player = Player(np.zeros((n, m)))
     for action in range(n):
         eq_(player.is_best_response(action, [1/m]*m), True)
-        for method in [None, 'simplex']:
+        for method in LP_METHODS:
             eq_(player.is_dominated(action, method=method), False)
 
-    e = 1e-8
+    e = 1e-8 * 2
     player = Player([[-e, -e], [1, -1], [-1, 1]])
     action = 0
     eq_(player.is_best_response(action, [1/2, 1/2], tol=e), True)
     eq_(player.is_best_response(action, [1/2, 1/2], tol=e/2), False)
-    for method in [None, 'simplex']:
-        eq_(player.is_dominated(action, tol=e, method=method), False)
+    for method in LP_METHODS:
+        eq_(player.is_dominated(action, tol=2*e, method=method), False)
+        eq_(player.dominated_actions(tol=2*e, method=method), [])
+
         eq_(player.is_dominated(action, tol=e/2, method=method), True)
+        eq_(player.dominated_actions(tol=e/2, method=method), [action])
 
 
 # NormalFormGame #
@@ -173,6 +209,17 @@ class TestNormalFormGame_Asym2p:
         assert_array_equal(self.g[action_profile],
                            self.BoS_bimatrix[action_profile])
 
+    def test_delete_action(self):
+        action_to_delete = 0
+        for i, player in enumerate(self.g.players):
+            g_new = self.g.delete_action(i, action_to_delete)
+            actions_to_remain = \
+                np.setdiff1d(np.arange(player.num_actions), action_to_delete)
+            assert_array_equal(
+                g_new.payoff_profile_array,
+                self.g.payoff_profile_array.take(actions_to_remain, axis=i)
+            )
+
     def test_is_nash_pure(self):
         ok_(not self.g.is_nash((1, 0)))
 
@@ -202,6 +249,17 @@ class TestNormalFormGame_3p:
 
     def test_getitem(self):
         assert_array_equal(self.g[0, 0, 1], [6, 4, 1])
+
+    def test_delete_action(self):
+        action_to_delete = 0
+        for i, player in enumerate(self.g.players):
+            g_new = self.g.delete_action(i, action_to_delete)
+            actions_to_remain = \
+                np.setdiff1d(np.arange(player.num_actions), action_to_delete)
+            assert_array_equal(
+                g_new.payoff_profile_array,
+                self.g.payoff_profile_array.take(actions_to_remain, axis=i)
+            )
 
     def test_is_nash_pure(self):
         ok_(self.g.is_nash((0, 0, 0)))
@@ -289,25 +347,44 @@ class TestPlayer_0opponents:
 
     def setUp(self):
         """Setup a Player instance"""
-        payoffs = [0, 1]
-        self.player = Player(payoffs)
+        self.payoffs = [0, 1, -1]
+        self.player = Player(self.payoffs)
+        self.best_response_action = 1
+        self.dominated_actions = [0, 2]
+
+    def test_delete_action(self):
+        N = self.player.num_opponents + 1
+        actions_to_delete = [0, 2]
+        actions_to_remain = \
+            np.setdiff1d(np.arange(self.player.num_actions), actions_to_delete)
+        for i in range(N):
+            player_new = self.player.delete_action(actions_to_delete, i)
+            assert_array_equal(
+                player_new.payoff_array,
+                self.player.payoff_array.take(actions_to_remain, axis=i)
+            )
 
     def test_payoff_vector(self):
         """Trivial player: payoff_vector"""
-        assert_array_equal(self.player.payoff_vector(None), [0, 1])
+        assert_array_equal(self.player.payoff_vector(None), self.payoffs)
 
     def test_is_best_response(self):
         """Trivial player: is_best_response"""
-        ok_(self.player.is_best_response(1, None))
+        ok_(self.player.is_best_response(self.best_response_action, None))
 
     def test_best_response(self):
         """Trivial player: best_response"""
-        eq_(self.player.best_response(None), 1)
+        eq_(self.player.best_response(None), self.best_response_action)
 
     def test_is_dominated(self):
         """Trivial player: is_dominated"""
-        eq_(self.player.is_dominated(0), True)
-        eq_(self.player.is_dominated(1), False)
+        for action in range(self.player.num_actions):
+            eq_(self.player.is_dominated(action),
+                (action in self.dominated_actions))
+
+    def test_dominated_actions(self):
+        """Trivial player: dominated_actions"""
+        eq_(self.player.dominated_actions(), self.dominated_actions)
 
 
 class TestNormalFormGame_1p:
@@ -326,6 +403,17 @@ class TestNormalFormGame_1p:
     def test_getitem(self):
         """Trivial game: __getitem__"""
         eq_(self.g[0], 0)
+
+    def test_delete_action(self):
+        actions_to_delete = [1, 2]
+        for i, player in enumerate(self.g.players):
+            g_new = self.g.delete_action(i, actions_to_delete)
+            actions_to_remain = \
+                np.setdiff1d(np.arange(player.num_actions), actions_to_delete)
+            assert_array_equal(
+                g_new.payoff_profile_array,
+                self.g.payoff_profile_array.take(actions_to_remain, axis=i)
+            )
 
     def test_is_nash_pure(self):
         """Trivial game: is_nash with pure action"""
@@ -357,6 +445,24 @@ def test_normalformgame_setitem_1p():
     eq_(g.players[0].payoff_array[0], 10)
 
 
+# Trivial cases with one action #
+
+class TestPlayer_1action:
+    def setUp(self):
+        """Setup a Player instance"""
+        self.payoffs = [[0, 1]]
+        self.player = Player(self.payoffs)
+
+    def test_is_dominated(self):
+        for action in range(self.player.num_actions):
+            for method in LP_METHODS:
+                eq_(self.player.is_dominated(action, method=method), False)
+
+    def test_dominated_actions(self):
+        for method in LP_METHODS:
+            eq_(self.player.dominated_actions(method=method), [])
+
+
 # Test __repr__ #
 
 def test_player_repr():
@@ -375,34 +481,44 @@ def test_player_repr():
 # Invalid inputs #
 
 @raises(ValueError)
+def test_player_zero_actions():
+    Player([[]])
+
+
+@raises(ValueError)
 def test_normalformgame_invalid_input_players_shape_inconsistent():
     p0 = Player(np.zeros((2, 3)))
     p1 = Player(np.zeros((2, 3)))
-    g = NormalFormGame([p0, p1])
+    NormalFormGame([p0, p1])
 
 
 @raises(ValueError)
 def test_normalformgame_invalid_input_players_num_inconsistent():
     p0 = Player(np.zeros((2, 2, 2)))
     p1 = Player(np.zeros((2, 2, 2)))
-    g = NormalFormGame([p0, p1])
+    NormalFormGame([p0, p1])
 
 
 @raises(ValueError)
 def test_normalformgame_invalid_input_players_dtype_inconsistent():
     p0 = Player(np.zeros((2, 2), dtype=int))
     p1 = Player(np.zeros((2, 2), dtype=float))
-    g = NormalFormGame([p0, p1])
+    NormalFormGame([p0, p1])
 
 
 @raises(ValueError)
 def test_normalformgame_invalid_input_nosquare_matrix():
-    g = NormalFormGame(np.zeros((2, 3)))
+    NormalFormGame(np.zeros((2, 3)))
 
 
 @raises(ValueError)
 def test_normalformgame_invalid_input_payoff_profiles():
-    g = NormalFormGame(np.zeros((2, 2, 1)))
+    NormalFormGame(np.zeros((2, 2, 1)))
+
+
+@raises(ValueError)
+def test_normalformgame_zero_actions():
+    NormalFormGame((2, 0))
 
 
 # Utility functions #
